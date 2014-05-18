@@ -27,10 +27,14 @@
 namespace floor_transform{
 
    FloorTransform::FloorTransform(ros::NodeHandle& nh)
-      :  pub(nh.advertise<sensor_msgs::PointCloud2>("plane", 1)),
-         sub(nh.subscribe<sensor_msgs::PointCloud2>("/uos_3dscans", 1, &FloorTransform::getPlain, this))
    {
-
+      nh.param("input_cloud", input_cloud, std::string("/uos_3dscans"));
+      nh.param("output_cloud", output_cloud, std::string("/plane"));
+      nh.param("min_z", min_z, -0.3);
+      nh.param("max_z", max_z, 0.3);
+      nh.param("delta_angle", delta_angle, 15.0);
+      sub = nh.subscribe<sensor_msgs::PointCloud2>(input_cloud.c_str(), 1, &FloorTransform::getPlane, this);
+      pub = nh.advertise<sensor_msgs::PointCloud2>(output_cloud.c_str(), 1);
    }
 
    FloorTransform::~FloorTransform()
@@ -38,31 +42,53 @@ namespace floor_transform{
 
    }
 
-   void FloorTransform::getPlain(const sensor_msgs::PointCloud2 ros_cloud){
+   void FloorTransform::getPlane(const sensor_msgs::PointCloud2 ros_cloud){
+
+      ROS_INFO("Got PointCloud2...");
 
       pcl::PCLPointCloud2::Ptr
-         cloud_blob (new pcl::PCLPointCloud2),
-         cloud_filtered_blob (new pcl::PCLPointCloud2);
+         cloud (new pcl::PCLPointCloud2),
+         cloud_crop (new pcl::PCLPointCloud2),
+         cloud_voxel (new pcl::PCLPointCloud2);
 
       pcl::PointCloud<pcl::PointXYZ>::Ptr
          cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>),
          cloud_p (new pcl::PointCloud<pcl::PointXYZ>),
          cloud_f (new pcl::PointCloud<pcl::PointXYZ>);
 
-      pcl_conversions::toPCL(ros_cloud, *cloud_blob);
+      pcl_conversions::toPCL(ros_cloud, *cloud);
 
       std::cerr << "PointCloud before filtering: "
-         << cloud_blob->width * cloud_blob->height
+         << cloud->width * cloud->height
          << " data points." << std::endl;
+
+
+      Eigen::Vector4f z_min, z_max;
+
+      z_min[0] = -INFINITY;
+      z_min[1] = -INFINITY;
+      z_min[2] = min_z;
+
+      z_max[0] = INFINITY;
+      z_max[1] = INFINITY;
+      z_max[2] = max_z;
+
+      // filter PCLPointCloud2 cloud_blob with CropBox in Rang [z_min z_max]
+      pcl::CropBox<pcl::PCLPointCloud2> crop;
+      crop.setInputCloud (cloud);
+      crop.setMin(z_min);
+      crop.setMax(z_max);
+      crop.filter(*cloud_crop);
 
       // filter PCLPointCloud2 cloud_blob with VoxelGrid to cloud_filtered_blob
       pcl::VoxelGrid<pcl::PCLPointCloud2> sor;
-      sor.setInputCloud (cloud_blob);
+      sor.setInputCloud (cloud_crop);
       sor.setLeafSize (0.01f, 0.01f, 0.01f);
-      sor.filter (*cloud_filtered_blob);
+      sor.filter (*cloud_voxel);
+
 
       // convert PCLPointCloud2 to PointCloud<pcl::PointXYZ> cloud_filtered
-      pcl::fromPCLPointCloud2(*cloud_filtered_blob, *cloud_filtered);
+      pcl::fromPCLPointCloud2(*cloud_voxel, *cloud_filtered);
 
       std::cerr << "PointCloud after filtering: "
          << cloud_filtered->width * cloud_filtered->height
@@ -74,31 +100,37 @@ namespace floor_transform{
 
       // Create the segmentation object
       pcl::SACSegmentation<pcl::PointXYZ> seg;
+
       // Optional
       seg.setOptimizeCoefficients (true);
       // Mandatory
-      seg.setModelType (pcl::SACMODEL_PLANE);
+
+      seg.setModelType (pcl::SACMODEL_PERPENDICULAR_PLANE);
+      //seg.setModelType (pcl::SACMODEL_PLANE);
       seg.setMethodType (pcl::SAC_RANSAC);
       seg.setMaxIterations (1000);
       seg.setDistanceThreshold (0.01);
 
+      Eigen::Vector3f z_axis;
+      z_axis[0] = 0.0;
+      z_axis[1] = 0.0;
+      z_axis[2] = 1.0;
+
+      seg.setAxis(z_axis);
+      seg.setEpsAngle(delta_angle * M_PI / 180);
+
       // Create the filtering object
       pcl::ExtractIndices<pcl::PointXYZ> extract;
 
-      int nr_points = (int) cloud_filtered->points.size ();
-      // While 30% of the original cloud is still there
-      while (cloud_filtered->points.size () > 0.3 * nr_points)
+      seg.setInputCloud (cloud_filtered);
+      seg.segment (*inliers, *coefficients);
+      if (inliers->indices.size () == 0)
       {
-         // Segment the largest planar component from the remaining cloud
-         seg.setInputCloud (cloud_filtered);
-         seg.segment (*inliers, *coefficients);
-         if (inliers->indices.size () == 0)
-         {
-            std::cerr << "Could not estimate a planar model for the given dataset."
-               << std::endl;
-            break;
-         }
-
+         std::cerr << "Could not estimate a planar model for the given dataset."
+            << std::endl;
+      }
+      else
+      {
          // Extract the inliers
          extract.setInputCloud (cloud_filtered);
          extract.setIndices (inliers);
@@ -116,11 +148,6 @@ namespace floor_transform{
          sensor_msgs::PointCloud2 pub_plane_cloud;
          pcl::toROSMsg<pcl::PointXYZ>(*cloud_p, pub_plane_cloud);
          pub.publish(pub_plane_cloud);
-
-         // Create the filtering object
-         extract.setNegative (true);
-         extract.filter (*cloud_f);
-         cloud_filtered.swap (cloud_f);
       }
    }
 }

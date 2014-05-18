@@ -27,6 +27,8 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 
+#include <Eigen/Dense>
+
 #include <pcl/ModelCoefficients.h>
 #include <pcl/conversions.h> //I believe you were using pcl/ros/conversion.h
 #include <pcl/point_cloud.h>
@@ -40,6 +42,7 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/crop_box.h>
 #include <pcl/filters/extract_indices.h>
 
 namespace floor_transform{
@@ -50,10 +53,12 @@ namespace floor_transform{
          FloorTransform(ros::NodeHandle& nh);
          ~FloorTransform();
       private:
-         void getPlain(sensor_msgs::PointCloud2 ros_cloud);
+         void getPlane(sensor_msgs::PointCloud2 ros_cloud);
          ros::Publisher pub;
          ros::Subscriber sub;
 
+         double delta_angle, min_z, max_z;
+         std::string input_cloud, output_cloud;
    };
 
 }
