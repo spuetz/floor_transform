@@ -170,8 +170,20 @@ namespace floor_transform{
 
          Eigen::Translation<float, 3> trans_b(support);
 
-         Eigen::Transform<float, 3, Eigen::Affine> transformation =
+         Eigen::Transform<float, 3, Eigen::Affine> t =
             trans_b * rotation * trans_a;
+
+         tf::Matrix3x3 rot_tf(
+            t(0,0), t(0,1), t(0,2),
+            t(1,0), t(1,1), t(1,2),
+            t(2,0), t(2,1), t(2,2));
+
+         tf::Vector3 trla_tf(
+            t(0,3),
+            t(1,3),
+            t(2,3));
+
+         tf::Transform trans_tf(rot_tf, trla_tf);
 
          sensor_msgs::PointCloud2 pub_plane_cloud;
          pcl::toROSMsg<pcl::PointXYZ>(*cloud_p, pub_plane_cloud);

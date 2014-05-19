@@ -45,6 +45,8 @@
 #include <pcl/filters/crop_box.h>
 #include <pcl/filters/extract_indices.h>
 
+#include <tf/transform_datatypes.h>
+
 namespace floor_transform{
 
    class FloorTransform{
