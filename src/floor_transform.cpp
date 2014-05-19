@@ -33,8 +33,12 @@ namespace floor_transform{
       nh.param("min_z", min_z, -0.3);
       nh.param("max_z", max_z, 0.3);
       nh.param("delta_angle", delta_angle, 15.0);
-      sub = nh.subscribe<sensor_msgs::PointCloud2>(input_cloud.c_str(), 1, &FloorTransform::getPlane, this);
-      pub = nh.advertise<sensor_msgs::PointCloud2>(output_cloud.c_str(), 1);
+      sub = nh.subscribe<const sensor_msgs::PointCloud2&>(
+         input_cloud.c_str(), 1, &FloorTransform::getPlane, this);
+      pub = nh.advertise<sensor_msgs::PointCloud2>(
+         output_cloud.c_str(), 1);
+      srv = nh.advertiseService(
+         "FloorTransform", &FloorTransform::getTransformation, this);
    }
 
    FloorTransform::~FloorTransform()
@@ -42,9 +46,24 @@ namespace floor_transform{
 
    }
 
-   void FloorTransform::getPlane(const sensor_msgs::PointCloud2 ros_cloud){
 
-      ROS_INFO("Got PointCloud2...");
+   bool FloorTransform::getTransformation(
+      floor_transform::GetTransform::Request& request,
+      floor_transform::GetTransform::Response& response)
+   {
+      return getPlane(request.cloud, response.pose, true);
+   }
+
+
+   void FloorTransform::getPlane(const sensor_msgs::PointCloud2& ros_cloud)
+   {
+      geometry_msgs::PoseStamped trans;
+      getPlane(ros_cloud, trans, true);
+   }
+
+   bool FloorTransform::getPlane(const sensor_msgs::PointCloud2& ros_cloud,
+      geometry_msgs::PoseStamped& pose_stamped, bool publish_plane)
+   {
 
       pcl::PCLPointCloud2::Ptr
          cloud (new pcl::PCLPointCloud2),
@@ -61,7 +80,6 @@ namespace floor_transform{
       std::cerr << "PointCloud before filtering: "
          << cloud->width * cloud->height
          << " data points." << std::endl;
-
 
       Eigen::Vector4f z_min, z_max;
 
@@ -86,14 +104,12 @@ namespace floor_transform{
       sor.setLeafSize (0.01f, 0.01f, 0.01f);
       sor.filter (*cloud_voxel);
 
-
       // convert PCLPointCloud2 to PointCloud<pcl::PointXYZ> cloud_filtered
       pcl::fromPCLPointCloud2(*cloud_voxel, *cloud_filtered);
 
       std::cerr << "PointCloud after filtering: "
          << cloud_filtered->width * cloud_filtered->height
          << " data points." << std::endl;
-
 
       pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
       pcl::PointIndices::Ptr inliers (new pcl::PointIndices ());
@@ -119,32 +135,23 @@ namespace floor_transform{
       seg.setAxis(axis);
       seg.setEpsAngle(delta_angle * M_PI / 180);
 
-      // Create the filtering object
-      pcl::ExtractIndices<pcl::PointXYZ> extract;
-
       seg.setInputCloud (cloud_filtered);
       seg.segment (*inliers, *coefficients);
       if (inliers->indices.size () == 0)
       {
          std::cerr << "Could not estimate a planar model for the given dataset."
             << std::endl;
+         return false;
       }
       else
       {
-         // Extract the inliers
-         extract.setInputCloud (cloud_filtered);
-         extract.setIndices (inliers);
-         extract.setNegative (false);
-         extract.filter (*cloud_p);
-         std::cerr << "PointCloud representing the planar component: "
-            << cloud_p->width * cloud_p->height << " data points." << std::endl;
+         // calc transformation
 
          std::cerr << "Model coefficients: "
             << coefficients->values[0] << " "
             << coefficients->values[1] << " "
             << coefficients->values[2] << " "
             << coefficients->values[3] << std::endl;
-
 
          float a, b, c, d;
          Eigen::Vector3f normal;
@@ -173,22 +180,37 @@ namespace floor_transform{
          Eigen::Transform<float, 3, Eigen::Affine> t =
             trans_b * rotation * trans_a;
 
-         tf::Matrix3x3 rot_tf(
-            t(0,0), t(0,1), t(0,2),
-            t(1,0), t(1,1), t(1,2),
-            t(2,0), t(2,1), t(2,2));
+         Eigen::Quaternionf quaternion(t.rotation());
+         Eigen::Vector3f translation(t.translation());
 
-         tf::Vector3 trla_tf(
-            t(0,3),
-            t(1,3),
-            t(2,3));
+         pose_stamped.pose.position.x = translation.x();
+         pose_stamped.pose.position.y = translation.y();
+         pose_stamped.pose.position.z = translation.z();
 
-         tf::Transform trans_tf(rot_tf, trla_tf);
+         pose_stamped.pose.orientation.x = quaternion.x();
+         pose_stamped.pose.orientation.y = quaternion.y();
+         pose_stamped.pose.orientation.z = quaternion.z();
+         pose_stamped.pose.orientation.w = quaternion.w();
 
-         sensor_msgs::PointCloud2 pub_plane_cloud;
-         pcl::toROSMsg<pcl::PointXYZ>(*cloud_p, pub_plane_cloud);
-         pub.publish(pub_plane_cloud);
+         if(publish_plane){
+            // Create the filtering object
+            pcl::ExtractIndices<pcl::PointXYZ> extract;
+
+            // Extract the inliers
+            extract.setInputCloud (cloud_filtered);
+            extract.setIndices (inliers);
+            extract.setNegative (false);
+            extract.filter (*cloud_p);
+            std::cerr << "PointCloud representing the planar component: "
+               << cloud_p->width * cloud_p->height << " data points." << std::endl;
+
+
+            sensor_msgs::PointCloud2 pub_plane_cloud;
+            pcl::toROSMsg<pcl::PointXYZ>(*cloud_p, pub_plane_cloud);
+            pub.publish(pub_plane_cloud);
+         }
       }
+      return true;
    }
 }
 

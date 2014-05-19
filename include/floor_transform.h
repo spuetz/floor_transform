@@ -26,11 +26,12 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #include <Eigen/Dense>
 
 #include <pcl/ModelCoefficients.h>
-#include <pcl/conversions.h> //I believe you were using pcl/ros/conversion.h
+#include <pcl/conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -46,6 +47,7 @@
 #include <pcl/filters/extract_indices.h>
 
 #include <tf/transform_datatypes.h>
+#include <floor_transform/GetTransform.h>
 
 namespace floor_transform{
 
@@ -55,10 +57,18 @@ namespace floor_transform{
          FloorTransform(ros::NodeHandle& nh);
          ~FloorTransform();
       private:
-         void getPlane(sensor_msgs::PointCloud2 ros_cloud);
+         bool getTransformation(
+            GetTransform::Request& request,
+            GetTransform::Response& response);
+
+         void getPlane(const sensor_msgs::PointCloud2& ros_cloud);
+         bool getPlane(
+            const sensor_msgs::PointCloud2& ros_cloud,
+            geometry_msgs::PoseStamped& transform, bool publish_plane);
+
          ros::Publisher pub;
          ros::Subscriber sub;
-
+         ros::ServiceServer srv;
          double delta_angle, min_z, max_z;
          std::string input_cloud, output_cloud;
    };
