@@ -111,12 +111,12 @@ namespace floor_transform{
       seg.setMaxIterations (1000);
       seg.setDistanceThreshold (0.01);
 
-      Eigen::Vector3f z_axis;
-      z_axis[0] = 0.0;
-      z_axis[1] = 0.0;
-      z_axis[2] = 1.0;
+      Eigen::Vector3f axis;
+      axis[0] = 0.0;
+      axis[1] = 0.0;
+      axis[2] = 1.0;
 
-      seg.setAxis(z_axis);
+      seg.setAxis(axis);
       seg.setEpsAngle(delta_angle * M_PI / 180);
 
       // Create the filtering object
@@ -144,6 +144,34 @@ namespace floor_transform{
             << coefficients->values[1] << " "
             << coefficients->values[2] << " "
             << coefficients->values[3] << std::endl;
+
+
+         float a, b, c, d;
+         Eigen::Vector3f normal;
+         a = normal[0] = coefficients->values[0];
+         b = normal[1] = coefficients->values[1];
+         c = normal[2] = coefficients->values[2];
+         d = coefficients->values[3];
+
+         float length = std::sqrt( a*a + b*b + c*c );
+         const float dist = (float) (std::abs( d ) / length);
+
+         normal.normalize();
+
+         Eigen::Vector3f support = normal * dist;
+
+         Eigen::Translation<float, 3> trans_a(-support);
+
+         Eigen::Quaternionf rotation =
+            Eigen::Quaternionf().setFromTwoVectors(normal, axis);
+
+         // set z-axis to zero
+         support[2] = 0;
+
+         Eigen::Translation<float, 3> trans_b(support);
+
+         Eigen::Transform<float, 3, Eigen::Affine> transformation =
+            trans_b * rotation * trans_a;
 
          sensor_msgs::PointCloud2 pub_plane_cloud;
          pcl::toROSMsg<pcl::PointXYZ>(*cloud_p, pub_plane_cloud);
