@@ -38,7 +38,7 @@ namespace floor_transform{
       pub = nh.advertise<sensor_msgs::PointCloud2>(
          output_cloud.c_str(), 1);
       srv = nh.advertiseService(
-         "FloorTransform", &FloorTransform::getTransformation, this);
+         "floor_transform", &FloorTransform::getTransformation, this);
    }
 
    FloorTransform::~FloorTransform()
@@ -229,5 +229,3 @@ int main (int argc, char** argv)
    return EXIT_SUCCESS;
 
 }
-
-
